@@ -108,7 +108,8 @@ def atos(
         z = prox_2(x+step_size*u, step_size )
         u_old = u
         u += (x-z)/step_size
-
+        if it ==0:
+            r0_norm = norm(u-u_old)
         #Doing outer on u only
         if outer_aa != 0:
             r = u - u_old
