@@ -24,6 +24,10 @@ def generate_data():
 class f1_copt:
     def __init__(self,Q):
         self.Q = Q
+    def __call__(self,x):
+        Qx = self.Q @ x
+        fval = 0.5* x.T @ Qx
+        return fval
     def f_grad(self,x,return_gradient=True):
         Qx   = self.Q @ x
         fval = 0.5* x.T @ Qx
