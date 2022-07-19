@@ -22,13 +22,17 @@ def atos(
     h_Lipschitz=None,
     barrier=None,
     inner_aa=None,
-    outer_aa=None
+    mid_aa=None,
+    outer_aa=None,
+    g_func=None
 ):
     success = False
     if inner_aa is None:
         inner_aa = 0
     if outer_aa is None:
         outer_aa = 0
+    if mid_aa is None:
+        mid_aa = 0
     
     z_old = x0
     z = prox_2(x0, step_size )
@@ -41,6 +45,15 @@ def atos(
         p = y
         p_aa   = []
         Q_aa   = []
+
+    if mid_aa != 0:
+        v = x + step_size*u
+        s = v
+        v_aa = []
+        W_aa = []
+        if g_func is None:
+            raise ValueError("Mid AA needs g(x) evaluation")
+
 
     if outer_aa !=0:
         #Safeguard from Fu,Zhang,Boyd, 2020
@@ -57,6 +70,7 @@ def atos(
 
     for it in range(max_iter):
         aa_mk_inner = min(inner_aa,it)
+        aa_mk_mid   = min(mid_aa,it)
         aa_mk_outer = min(outer_aa,it)
 
         grad_fk_old = grad_fk
@@ -84,7 +98,7 @@ def atos(
             fx_test = f_grad(x_test, return_gradient=False) 
             fx,grad_fk = f_grad(x)
             incr = x-z
-            f_if_test = fx_test - fx - grad_fk.dot(incr) - (norm(incr)**2)/(2*step_size)
+            f_if_test = fx_test  - fx + (step_size/2)*norm(grad_fk)**2 - (step_size/2)*norm(u)**2
             if f_if_test <= 0:
                 x = x_test
             else:
@@ -105,7 +119,38 @@ def atos(
                 else:
                     step_size *= backtracking_factor
 
-        z = prox_2(x+step_size*u, step_size )
+        if mid_aa !=0:
+            v = x + step_size*u
+            w = v - s
+            len_W = len(W_aa)
+            if len_W >= aa_mk_mid and len_W !=0:
+                W_aa.pop(0)
+            W_aa.append(w)
+            W_sol = AA_LQ(W_aa,1.e-6)
+
+            if len(v_aa) >= aa_mk_mid and len(v_aa) != 0:
+                v_aa.pop(0)
+            v_aa.append(v)
+            s_test = sum([v_aa[i]*val for i,val in enumerate(W_sol)])
+
+        if mid_aa == 0:
+            z = prox_2(x+step_size*u, step_size )
+        else:
+            z_test = prox_2(s_test, step_size)
+            fz_test = f_grad(z_test, return_gradient=False)
+            fz,grad_fk = f_grad(z)
+            gz_test = g_func(z_test)
+            gz = g_func(z)
+            G_val = z - prox_1(z- step_size*u - step_size*grad_fk,step_size) #G_val minus u_Vec
+            f_mid_test = fz_test+gz_test - fz - gz + G_val.dot(G_val)/(2*step_size) - (G_val.dot(u))/2
+            if f_mid_test <= 0:
+                z = z_test
+                s = s_test
+            else:
+                z = prox_2(v, step_size)
+                s = v
+
+
         u_old = u
         u += (x-z)/step_size
         if it ==0:
