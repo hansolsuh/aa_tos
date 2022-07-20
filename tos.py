@@ -51,8 +51,8 @@ def atos(
         s = v
         v_aa = []
         W_aa = []
-        if g_func is None:
-            raise ValueError("Mid AA needs g(x) evaluation")
+#        if g_func is None:
+#            raise ValueError("Mid AA needs g(x) evaluation")
 
 
     if outer_aa !=0:
@@ -98,9 +98,10 @@ def atos(
             fx_test = f_grad(x_test, return_gradient=False) 
             fx,grad_fk = f_grad(x)
             incr = x-z
-            f_if_test = fx_test  - fx + (step_size/2)*norm(grad_fk)**2 - (step_size/2)*norm(u)**2
-            if f_if_test <= 0:
+            rhs = fx - (step_size/2)*grad_fk.dot(grad_fk) + (step_size/2)*u.dot(u)
+            if fx_test - rhs <= 1.e-12:
                 x = x_test
+                #print("inner accepted at ", it)
             else:
                 x = prox_1(p, step_size)
                 y = p
@@ -139,11 +140,16 @@ def atos(
             z_test = prox_2(s_test, step_size)
             fz_test = f_grad(z_test, return_gradient=False)
             fz,grad_fk = f_grad(z)
-            gz_test = g_func(z_test)
-            gz = g_func(z)
-            G_val = z - prox_1(z- step_size*u - step_size*grad_fk,step_size) #G_val minus u_Vec
-            f_mid_test = fz_test+gz_test - fz - gz + G_val.dot(G_val)/(2*step_size) - (G_val.dot(u))/2
+            if g_func is not None:
+                gz_test = g_func(z_test)
+                gz = g_func(z)
+                G_val = z - prox_1(z- step_size*u - step_size*grad_fk,step_size) #G_val minus u_Vec
+                f_mid_test = fz_test+gz_test - fz - gz + G_val.dot(G_val)/(2*step_size) - (G_val.dot(u))/2
+            else:
+                G_val_p_u = z - prox_1(z- step_size*u - step_size*grad_fk,step_size)+ 2*u #G_val plus u_Vec
+                f_mid_test = fz_test - fz + step_size*grad_fk.dot(G_val_p_u) - (step_size/2)*G_val_p_u.dot(G_val_p_u)
             if f_mid_test <= 0:
+                #print("mid accepted at ", it)
                 z = z_test
                 s = s_test
             else:
@@ -177,6 +183,7 @@ def atos(
                     safeguard = False
                     R_safe = 1
                 else:
+                    #print("outer not accepted at ",it)
                     #z = z_TOS
                     R_safe = 0
             else:
@@ -364,6 +371,8 @@ class Trace:
         self._counter = 0
         self.freq = int(freq)
         self.f = f
+        self.Q_sol = []
+        self.W_sol = []
 
     def __call__(self, dl):
         if self._counter % self.freq == 0:
@@ -375,6 +384,10 @@ class Trace:
             self.trace_time.append(delta)
             self.trace_step_size.append(dl["step_size"])
             self.trace_fx.append(dl["fk"])
+            if dl.get("inner_aa") is not 0:
+                self.Q_sol.append(dl["Q_sol"])
+            if dl.get("mid_aa") is not 0:
+                self.W_sol.append(dl["W_sol"])
 
         self._counter += 1
 
