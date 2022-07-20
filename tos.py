@@ -384,9 +384,9 @@ class Trace:
             self.trace_time.append(delta)
             self.trace_step_size.append(dl["step_size"])
             self.trace_fx.append(dl["fk"])
-            if dl.get("inner_aa") is not 0:
+            if dl.get("inner_aa") != 0:
                 self.Q_sol.append(dl["Q_sol"])
-            if dl.get("mid_aa") is not 0:
+            if dl.get("mid_aa") != 0:
                 self.W_sol.append(dl["W_sol"])
 
         self._counter += 1
