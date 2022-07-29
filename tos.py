@@ -394,6 +394,12 @@ def n_tos(
     g_func=None
 ):
     success = False
+    if inner_aa is None:
+        inner_aa = 0
+    if mid_aa is None:
+        mid_aa = 0
+    if outer_aa is None:
+        outer_aa = 0
 
     fk,grad_fk = f_grad(z0)
     w = z0 - step_size*grad_fk
@@ -402,12 +408,63 @@ def n_tos(
     fk,grad_fk = f_grad(z)
     w = z - step_size*grad_fk
 
-    for it in range(max_iter):
-        z = prox_2(prox_1(w,step_size),step_size)
-        fk,grad_fk = f_grad(z)
-        w = z - step_size*grad_fk
+    if inner_aa !=0:
+        p = w
+        p_aa   = []
+        Q_aa   = []
 
-        certificate = (1/step_size)*norm(x-w)/(1+norm(z))
+
+    if outer_aa !=0:
+        #Safeguard from Fu,Zhang,Boyd, 2020
+        safeguard = True
+        n_aa      = 0
+        iter_aa   = 0 #R_aa in Fu paper
+        D_aa      = 1.e7 #TODO choose?
+        R_safe    = 10
+        r    = z - z0
+        r0_norm = norm(r)
+        eps_aa = 1.e-6
+        R_aa = []
+        z_aa = []
+
+    for it in range(max_iter):
+        aa_mk_inner = min(inner_aa,it)
+        aa_mk_mid   = min(mid_aa,it)
+        aa_mk_outer = min(outer_aa,it)
+
+        if inner_aa != 0:
+            p_old = p
+            p = z - step_size*grad_fk
+            q = p - w
+            len_Q = len(Q_aa)
+            if len_Q >= aa_mk_inner and len_Q != 0:
+                Q_aa.pop(0)
+            Q_aa.append(q)
+            Q_sol = AA_LQ(Q_aa,1.e-6)
+
+            if len(p_aa) >= aa_mk_inner and len(p_aa) != 0:
+                p_aa.pop(0)
+            p_aa.append(p)
+            w_test = sum([p_aa[i]*val for i,val in enumerate(Q_sol)])
+
+        if inner_aa == 0:
+            w = z - step_size*grad_fk
+            x = prox_1(w,step_size)
+            z = prox_2(x,step_size)
+        else:
+            x_test  = prox_1(w_test, step_size)
+            z_test  = prox_2(x_test, step_size)
+            fz_test = f_grad(z_test, return_gradient=False) 
+            fz,grad_fk = f_grad(z)
+            if fz_test <= fz - (step_size/2)*(norm(grad_fk)**2):
+                x = x_test
+                z = z_test
+            else:
+                x = prox_1(p, step_size)
+                z = prox_2(x, step_size)
+                w = p
+
+        certificate = (1/step_size)*norm(x-z)
 
         if callback is not None:
             if callback(locals()) is False:
