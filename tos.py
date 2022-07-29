@@ -89,7 +89,10 @@ def atos(
             if len(p_aa) >= aa_mk_inner and len(p_aa) != 0:
                 p_aa.pop(0)
             p_aa.append(p)
-            y_test = sum([p_aa[i]*val for i,val in enumerate(Q_sol)])
+            tempo = np.asarray(p_aa)
+            y_test = tempo.T.dot(Q_sol)
+            del(tempo)
+            #y_test = sum([p_aa[i]*val for i,val in enumerate(Q_sol)])
 
         if inner_aa == 0:
             x = prox_1(z- step_size*(u+grad_fk), step_size)
@@ -97,9 +100,9 @@ def atos(
             x_test = prox_1(y_test, step_size)
             fx_test = f_grad(x_test, return_gradient=False) 
             fx,grad_fk = f_grad(x)
-            incr = x-z
+            xdiff = x_test -x
             rhs = fx - (step_size/2)*grad_fk.dot(grad_fk) + (step_size/2)*u.dot(u)
-            if fx_test - rhs <= 1.e-12:
+            if fx_test - rhs <= 0:
                 x = x_test
                 #print("inner accepted at ", it)
             else:
@@ -119,7 +122,6 @@ def atos(
                     break
                 else:
                     step_size *= backtracking_factor
-
         if mid_aa !=0:
             v = x + step_size*u
             w = v - s
@@ -132,7 +134,9 @@ def atos(
             if len(v_aa) >= aa_mk_mid and len(v_aa) != 0:
                 v_aa.pop(0)
             v_aa.append(v)
-            s_test = sum([v_aa[i]*val for i,val in enumerate(W_sol)])
+            tempo = np.asarray(v_aa)
+            s_test = tempo.T.dot(W_sol)
+            del(tempo)
 
         if mid_aa == 0:
             z = prox_2(x+step_size*u, step_size )
@@ -141,6 +145,7 @@ def atos(
             fz_test = f_grad(z_test, return_gradient=False)
             fz,grad_fk = f_grad(z)
             if g_func is not None:
+                #TODO exception for inf function value or just avoid indicator function?
                 gz_test = g_func(z_test)
                 gz = g_func(z)
                 G_val = z - prox_1(z- step_size*u - step_size*grad_fk,step_size) #G_val minus u_Vec
@@ -173,7 +178,9 @@ def atos(
             if len(u_aa) >= aa_mk_outer and len(u_aa) != 0:
                 u_aa.pop(0)
             u_aa.append(u)
-            u_test = sum([u_aa[i]*val for i,val in enumerate(R_sol)])
+            tempo = np.asarray(u_aa)
+            u_test = tempo.T.dot(R_sol)
+            del(tempo)
 
             #Safeguarding
             if safeguard or iter_aa >= R_safe:
@@ -219,6 +226,7 @@ def atos(
         x=x, success=success, nit=it, certificate=certificate, step_size=step_size
     )
 
+#Davis-Yin Formulation
 def aa_tos(
     f_grad,
     z0,
@@ -231,13 +239,19 @@ def aa_tos(
     line_search=True,
     barrier=None,
     inner_aa=None,
-    outer_aa=None
+    mid_aa=None,
+    outer_aa=None,
+    g_func=None
 ):
     success = False
     if inner_aa is None:
         inner_aa = 0
     if outer_aa is None:
         outer_aa = 0
+    if mid_aa is None:
+        mid_aa = 0
+
+
 
     w = prox_2(z0, step_size )
     fk,grad_fk = f_grad(w)
@@ -249,6 +263,14 @@ def aa_tos(
         p = y
         p_aa   = []
         Q_aa   = []
+
+    if mid_aa != 0:
+        v = x + step_size*u
+        s = v
+        v_aa = []
+        W_aa = []
+#        if g_func is None:
+#            raise ValueError("Mid AA needs g(x) evaluation")
 
     if outer_aa !=0:
         #Safeguard from Fu,Zhang,Boyd, 2020
@@ -265,6 +287,7 @@ def aa_tos(
 
     for it in range(max_iter):
         aa_mk_inner = min(inner_aa,it)
+        aa_mk_mid   = min(mid_aa,it)
         aa_mk_outer = min(outer_aa,it)
         
         grad_fk_old = grad_fk
@@ -353,6 +376,60 @@ def aa_tos(
         x=x, success=success, nit=it, certificate=certificate, step_size=step_size
     )
 
+
+#Nested
+def n_tos(
+    f_grad,
+    z0,
+    prox_1,
+    prox_2,
+    step_size,
+    callback=None,
+    tol=1.e-6,
+    max_iter=1000,
+    barrier=None,
+    inner_aa=None,
+    mid_aa=None,
+    outer_aa=None,
+    g_func=None
+):
+    success = False
+
+    fk,grad_fk = f_grad(z0)
+    w = z0 - step_size*grad_fk
+    #TODO g and h or h or g?
+    z = prox_2(prox_1(w,step_size),step_size)
+    fk,grad_fk = f_grad(z)
+    w = z - step_size*grad_fk
+
+    for it in range(max_iter):
+        z = prox_2(prox_1(w,step_size),step_size)
+        fk,grad_fk = f_grad(z)
+        w = z - step_size*grad_fk
+
+        certificate = (1/step_size)*norm(x-w)/(1+norm(z))
+
+        if callback is not None:
+            if callback(locals()) is False:
+                break
+
+        if it > 0 and certificate < tol:
+            if barrier != None:
+                if barrier > 1.e-12:
+                    barrier /= 1.1
+                else:
+                    success = True
+                    break
+            else:                
+                success = True
+                break
+
+    return optimize.OptimizeResult(
+        x=x, success=success, nit=it, certificate=certificate, step_size=step_size
+    )
+
+
+
 def AA_LQ(R,lbd):
     RTR = np.matmul(np.array(R),np.array(R).T)
     one_R = np.ones(len(R))
@@ -367,6 +444,7 @@ class Trace:
         self.trace_time = []
         self.trace_fx = []
         self.trace_step_size = []
+        self.trace_certificate = []
         self.start = datetime.now()
         self._counter = 0
         self.freq = int(freq)
@@ -383,6 +461,7 @@ class Trace:
             delta = (datetime.now() - self.start).total_seconds()
             self.trace_time.append(delta)
             self.trace_step_size.append(dl["step_size"])
+            self.trace_certificate.append(dl["certificate"])
             self.trace_fx.append(dl["fk"])
             if dl.get("inner_aa") != 0:
                 self.Q_sol.append(dl["Q_sol"])
@@ -390,4 +469,31 @@ class Trace:
                 self.W_sol.append(dl["W_sol"])
 
         self._counter += 1
+
+try:
+    from numba import njit, prange
+except ImportError:
+    from functools import wraps
+
+    def njit(*args, **kw):
+        if len(args) == 1 and len(kw) == 0 and hasattr(args[0], "__call__"):
+            func = args[0]
+
+            @wraps(func)
+            def inner_function(*args, **kwargs):
+                return func(*args, **kwargs)
+
+            return inner_function
+        else:
+
+            def inner_function(function):
+                @wraps(function)
+                def wrapper(*args, **kwargs):
+                    return function(*args, **kwargs)
+
+                return wrapper
+
+            return inner_function
+    
+    prange = range
 
