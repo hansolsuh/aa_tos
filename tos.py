@@ -241,7 +241,10 @@ def aa_tos(
     inner_aa=None,
     mid_aa=None,
     outer_aa=None,
-    g_func=None
+    g_func=None,
+    delta=None,
+    alpha=None,
+    beta=None
 ):
     success = False
     if inner_aa is None:
@@ -413,8 +416,82 @@ def n_tos(
 
     for it in range(max_iter):
         x_old = x
+        x = dr(w,step_size)
         fz,grad_fk = f_grad(x)
-        x = dr(x-step_size*grad_fk,step_size)
+        w = x - step_size*grad_fk
+        certificate = abs(f_func(x)-f_func(x_old))
+
+        if callback is not None:
+            if callback(locals()) is False:
+                break
+
+        if it > 0 and certificate < tol:
+            if barrier != None:
+                if barrier > 1.e-12:
+                    barrier /= 1.1
+                else:
+                    success = True
+                    break
+            else:                
+                success = True
+                break
+
+    return optimize.OptimizeResult(
+        x=x, success=success, nit=it, certificate=certificate, step_size=step_size
+    )
+
+
+#Nested
+def n_tos2(
+    f_grad,
+    z0,
+    prox_1,
+    prox_2,
+    step_size,
+    callback=None,
+    tol=1.e-6,
+    max_iter=1000,
+    barrier=None,
+    inner_aa=None,
+    mid_aa=None,
+    outer_aa=None,
+    f_func=None,
+    delta=None,
+    alpha=None,
+    beta=None
+):
+    success = False
+    if inner_aa is None:
+        inner_aa = 0
+    if mid_aa is None:
+        mid_aa = 0
+    if outer_aa is None:
+        outer_aa = 0
+
+    x = np.copy(z0)
+    u = np.copy(z0)
+    fk,grad_fk = f_grad(z0)
+    w = z0 - step_size*grad_fk
+    #z = prox_2(prox_1(w,step_size),step_size)
+    #x = dr(w, step_size)
+    #fk,grad_fk = f_grad(x)
+    #w = x - step_size*grad_fk
+    step1 = (alpha*step_size)/(alpha*step_size+delta)
+    step11 = delta/(alpha*step_size+delta)
+    step2 = (beta*step_size)/(beta*step_size+delta)
+    step22 = delta/(beta*step_size+delta)
+
+    x = prox_1(step1*(z0-delta*u)+ step11*w,delta*step1)
+    z = prox_2(step2*(x+delta*u)+step22*w, delta*step2)
+
+    for it in range(max_iter):
+        x_old = x
+    #    x = dr(w,step_size)
+        x = prox_1(step1*(z-delta*u)+ step11*w,delta*step1)
+        z = prox_2(step2*(x+delta*u)+step22*w, delta*step2)
+        u = u+ (x-z)/delta
+        fz,grad_fk = f_grad(z)
+        w = x - step_size*grad_fk
         certificate = abs(f_func(x)-f_func(x_old))
 
         if callback is not None:
